@@ -1,5 +1,6 @@
 {
   "expo": {
+    "newArchEnabled": true,
     "name": "Geogessr",
     "slug": "Geogessr",
     "version": "1.0.0",

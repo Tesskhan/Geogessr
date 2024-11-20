@@ -1,105 +1,174 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Alert, TextInput } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
-import Button from '../components/Button'; // Import the custom Button
-import Container from '../components/Container'; // Import the Container
-import Title from '../components/Title'; // Import the Container
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Alert } from 'react-native';
+import MapView, { Marker, Polyline } from 'react-native-maps';
+import Button from '../components/Button'; 
+import Container from '../components/Container'; 
+import Title from '../components/Title'; 
 import Line from '../components/Line';
+import { WebView } from 'react-native-webview';
+import { getFirestore, doc, getDoc } from "firebase/firestore";
+import app from '../FireBase';
 
 export default function Map({ navigation }) {
-    const [markers, setMarkers] = useState([]); // State to store markers
-    const [draggingMarker, setDraggingMarker] = useState(null); // State to track the currently dragging marker
+    const [markers, setMarkers] = useState([]);
+    const [showStreetView, setShowStreetView] = useState(false);
+    const [streetViewUrl, setStreetViewUrl] = useState('');
+    const [referenceLocation, setReferenceLocation] = useState(null);
+    const [guessMade, setGuessMade] = useState(false); // Track if the user made a guess
 
-    // Function to handle map press and add a new marker
+    // Fetch the GeoPoint from Firestore
+    const fetchReferenceLocation = async () => {
+        const db = getFirestore(app);
+        const docRef = doc(db, "Locations", "aPuXkdF1LGPtyN4VjLFj"); // Adjust Firestore path to next question
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+            const geoPoint = docSnap.data().location;
+            setReferenceLocation({
+                latitude: geoPoint.latitude,
+                longitude: geoPoint.longitude,
+            });
+        } else {
+            console.error("No such document!");
+        }
+    };
+
+    // Fetch the reference location on mount and when the user continues
+    useEffect(() => {
+        fetchReferenceLocation();
+    }, []);
+
+    const calculateDistance = (lat1, lon1, lat2, lon2) => {
+        const toRad = (value) => (value * Math.PI) / 180;
+
+        const R = 6371; // Radius of the Earth in kilometers
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+
+        const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c; // Distance in kilometers
+    };
+
     const handleMapPress = (event) => {
+        if (guessMade) return; // Prevent multiple taps
+
         const newCoordinate = event.nativeEvent.coordinate;
 
-        // Check if the location already has a marker
-        const isDuplicate = markers.some(marker =>
-            marker.coordinate.latitude === newCoordinate.latitude &&
-            marker.coordinate.longitude === newCoordinate.longitude
-        );
-
-        if (isDuplicate) {
+        if (!referenceLocation) {
             Alert.alert(
-                'Duplicate Marker',
-                'A marker already exists at this location.',
-                [{ text: 'OK' }]
+                "Reference Location Not Loaded",
+                "The reference location is still loading. Please try again.",
+                [{ text: "OK" }]
             );
-            return; // Exit the function if the location is a duplicate
+            return;
         }
 
-        // Create a new marker if validation is passed
         const newMarker = {
             coordinate: newCoordinate,
-            key: markers.length.toString(), // Unique key for each marker
+            key: "userGuess",
         };
 
-        setMarkers((prevMarkers) => [...prevMarkers, newMarker]); // Update state with new marker
+        const distance = calculateDistance(
+            referenceLocation.latitude,
+            referenceLocation.longitude,
+            newCoordinate.latitude,
+            newCoordinate.longitude
+        );
+
+        Alert.alert(
+            'Distance',
+            `Your guess is ${distance.toFixed(2)} km away from the reference location.`,
+            [{ text: 'OK' }]
+        );
+
+        setMarkers([newMarker]); // Add user's guess marker
+        setGuessMade(true); // Disable further taps
     };
 
-    // Function to handle the beginning of dragging a marker
-    const onMarkerPressIn = (marker) => {
-        setDraggingMarker(marker); // Set the marker being dragged
+    const handleMarkerPress = (coordinate) => {
+        const streetViewUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${coordinate.latitude},${coordinate.longitude}`;
+        setStreetViewUrl(streetViewUrl);
+        setShowStreetView(true);
     };
 
-    // Function to handle dragging a marker
-    const onMarkerDrag = (event) => {
-        if (draggingMarker) {
-            const newCoordinate = event.nativeEvent.coordinate;
-
-            // Update the position of the dragging marker
-            const updatedMarkers = markers.map(marker => {
-                if (marker.key === draggingMarker.key) {
-                    return { ...marker, coordinate: newCoordinate };
-                }
-                return marker;
-            });
-            setMarkers(updatedMarkers); // Update markers state
-        }
-    };
-
-    // Function to handle the end of dragging a marker
-    const onMarkerPressOut = () => {
-        setDraggingMarker(null); // Clear dragging marker
+    const handleContinue = () => {
+        // Reset state for a new question
+        setMarkers([]);
+        setGuessMade(false);
+        setShowStreetView(false);
+        fetchReferenceLocation(); // Fetch the new reference location
     };
 
     return (
         <Container>
             <Title>Guessing</Title>
             <Line />
-            {/* Container for the Map with Border */}
-            <View style={styles.mapContainer}>
-                <MapView
-                    style={styles.map}
-                    initialRegion={{
-                        latitude: 41.7220, // Latitude for Manresa
-                        longitude: 1.8222, // Longitude for Manresa
-                        latitudeDelta: 0.0922, // Adjust the zoom level as needed
-                        longitudeDelta: 0.0421,
-                    }}
-                    onPress={handleMapPress} // Handle map press to add markers
-                >
-                    {/* Render markers from the markers state */}
-                    {markers.map((marker) => (
-                        <Marker
-                            key={marker.key} // Unique key for each marker
-                            coordinate={marker.coordinate} // Coordinate for the marker
-                            pinColor="red" // Change the pin color to highlight
-                            title="Marker"
-                            draggable // Make the marker draggable
-                            onPressIn={() => onMarkerPressIn(marker)} // Set marker being dragged
-                            onPressOut={onMarkerPressOut} // Clear dragging marker
-                            onDrag={onMarkerDrag} // Handle dragging
-                        />
-                    ))}
-                </MapView>
-            </View>
+            
+            {showStreetView ? (
+                <WebView
+                    source={{ uri: streetViewUrl }}
+                    style={{ width: '100%', height: '100%' }}
+                    javaScriptEnabled={true}
+                    domStorageEnabled={true}
+                />
+            ) : (
+                <View style={styles.mapContainer}>
+                    <MapView
+                        style={styles.map}
+                        initialRegion={{
+                            latitude: referenceLocation ? referenceLocation.latitude : 41.7220,
+                            longitude: referenceLocation ? referenceLocation.longitude : 1.8222,
+                            latitudeDelta: 0.0922,
+                            longitudeDelta: 0.0421,
+                        }}
+                        mapType="satellite"
+                        onPress={handleMapPress}
+                    >
+                        {/* User Guess Marker */}
+                        {markers.map((marker) => (
+                            <Marker
+                                key={marker.key}
+                                coordinate={marker.coordinate}
+                                pinColor="red"
+                                title="Your Guess"
+                                onPress={() => handleMarkerPress(marker.coordinate)}
+                            />
+                        ))}
+
+                        {/* Reference Location Marker */}
+                        {referenceLocation && guessMade && (
+                            <Marker
+                                coordinate={referenceLocation}
+                                pinColor="blue"
+                                title="Reference Location"
+                            />
+                        )}
+
+                        {/* Line between User Guess and Reference */}
+                        {referenceLocation && markers.length > 0 && (
+                            <Polyline
+                                coordinates={[
+                                    referenceLocation,
+                                    markers[0].coordinate,
+                                ]}
+                                strokeColor="purple"
+                                strokeWidth={3}
+                            />
+                        )}
+                    </MapView>
+                </View>
+            )}
+            
             <View style={styles.buttonContainer}>
                 <Button
-                    label="Go back"
+                    label="Continue"
                     theme="primary"
-                    onPress={() => navigation.goBack()}
+                    onPress={handleContinue}
                 />
             </View>
         </Container>
@@ -107,39 +176,22 @@ export default function Map({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-    input: {
-        height: 50, // Increase height for a better look
-        borderColor: '#ffd33d', // Border color
-        borderWidth: 1, // Border width
-        width: '80%',
-        marginBottom: 20,
-        paddingHorizontal: 15, // Add padding for inner text
-        paddingVertical: 10, // Add vertical padding for better height
-        color: 'white', // Set input text color to white
-        borderRadius: 10, // Rounded corners
-        backgroundColor: '#333', // Darker background for input
-        shadowColor: '#000', // Shadow color
-        shadowOffset: { width: 0, height: 2 }, // Shadow offset
-        shadowOpacity: 0.5, // Shadow opacity
-        shadowRadius: 4, // Shadow radius
-        elevation: 5, // Elevation for Android
-    },
     mapContainer: {
-        width: '100%', // Set width to 98% to create space from the edges
-        height: '50%', // Adjust height of the map
-        borderRadius: 20, // Optional: rounded corners for a nicer look
-        overflow: 'hidden', // Ensures child components respect the border radius
-        borderWidth: 2, // Set border width
-        borderColor: '#FFE500', // Set border color
-        marginVertical: 20, // Add vertical margin for spacing
+        width: '100%',
+        height: '50%',
+        borderRadius: 20,
+        overflow: 'hidden',
+        borderWidth: 2,
+        borderColor: '#FFE500',
+        marginVertical: 20,
     },
     map: {
-        width: '100%', // Ensure the map takes the full width of the container
-        height: '100%', // Ensure the map takes the full height of the container
+        width: '100%',
+        height: '100%',
     },
     buttonContainer: {
         marginVertical: 10,
-        width: '80%', // Width to match the input in HomeScreen
-        alignItems: 'center', // Center the buttons horizontally
+        width: '80%',
+        alignItems: 'center',
     },
 });

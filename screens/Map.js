@@ -1,25 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
-import Button from '../components/Button'; 
-import Container from '../components/Container'; 
-import Title from '../components/Title'; 
+import Button from '../components/Button';
+import Container from '../components/Container';
+import Title from '../components/Title';
 import Line from '../components/Line';
 import { WebView } from 'react-native-webview';
 import { getFirestore, doc, getDoc } from "firebase/firestore";
 import app from '../FireBase';
 
 export default function Map({ navigation }) {
+    const questions = [
+        { id: "aPuXkdF1LGPtyN4VjLFj" },
+        { id: "TRPvmRT95hRboID2Dwss" },
+        { id: "XqcPhCSUvJRmx8rTkwGt" },
+        { id: "1VvaHI537pCVdABAmYYf" },
+        { id: "iC7SS7WYi30QY2XsHNMU" },
+    ];
+
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [markers, setMarkers] = useState([]);
     const [showStreetView, setShowStreetView] = useState(false);
     const [streetViewUrl, setStreetViewUrl] = useState('');
     const [referenceLocation, setReferenceLocation] = useState(null);
-    const [guessMade, setGuessMade] = useState(false); // Track if the user made a guess
+    const [question, setQuestion] = useState(''); // Store the question
+    const [guessMade, setGuessMade] = useState(false);
 
-    // Fetch the GeoPoint from Firestore
+    // Fetch the GeoPoint and question from Firestore
     const fetchReferenceLocation = async () => {
+        if (currentQuestionIndex >= questions.length) {
+            Alert.alert("No more questions", "You've completed all questions.", [{ text: "OK" }]);
+            return;
+        }
+
         const db = getFirestore(app);
-        const docRef = doc(db, "Locations", "aPuXkdF1LGPtyN4VjLFj"); // Adjust Firestore path to next question
+        const docRef = doc(db, "Locations", questions[currentQuestionIndex].id);
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
@@ -28,15 +43,18 @@ export default function Map({ navigation }) {
                 latitude: geoPoint.latitude,
                 longitude: geoPoint.longitude,
             });
+
+            const fetchedQuestion = docSnap.data().question; // Fetch question
+            setQuestion(fetchedQuestion); // Set the question
         } else {
             console.error("No such document!");
         }
     };
 
-    // Fetch the reference location on mount and when the user continues
+    // Fetch the reference location and question on mount and when the question changes
     useEffect(() => {
         fetchReferenceLocation();
-    }, []);
+    }, [currentQuestionIndex]);
 
     const calculateDistance = (lat1, lon1, lat2, lon2) => {
         const toRad = (value) => (value * Math.PI) / 180;
@@ -97,18 +115,26 @@ export default function Map({ navigation }) {
     };
 
     const handleContinue = () => {
-        // Reset state for a new question
-        setMarkers([]);
-        setGuessMade(false);
-        setShowStreetView(false);
-        fetchReferenceLocation(); // Fetch the new reference location
+        if (currentQuestionIndex < questions.length - 1) {
+            setCurrentQuestionIndex((prevIndex) => prevIndex + 1); // Advance to the next question
+            setMarkers([]);
+            setGuessMade(false);
+            setShowStreetView(false);
+        } else {
+            Alert.alert("Game Over", "You've completed all questions.", [{ text: "OK" }]);
+        }
     };
 
     return (
         <Container>
             <Title>Guessing</Title>
             <Line />
-            
+
+            {/* Display the question as white text over the map */}
+            <View style={styles.questionContainer}>
+                <Text style={styles.questionText}>{question}</Text>
+            </View>
+
             {showStreetView ? (
                 <WebView
                     source={{ uri: streetViewUrl }}
@@ -163,7 +189,7 @@ export default function Map({ navigation }) {
                     </MapView>
                 </View>
             )}
-            
+
             <View style={styles.buttonContainer}>
                 <Button
                     label="Continue"
@@ -193,5 +219,15 @@ const styles = StyleSheet.create({
         marginVertical: 10,
         width: '80%',
         alignItems: 'center',
+    },
+    questionContainer: {
+        padding: 10,
+        alignItems: 'center',
+    },
+    questionText: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: 'white', // White text for visibility over the map
+        textAlign: 'center',
     },
 });

@@ -166,7 +166,7 @@ export default function Map({ navigation }) {
             // Once all questions are completed, navigate to the ResultScreen
             navigation.navigate('ResultScreen', {
                 score: totalScore,  // Passing the total score
-                questionsData: questionsData,  // Passing all question data
+                questionsData: questionsData  // Passing all question data
             });
         }
     };

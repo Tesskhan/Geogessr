@@ -11,9 +11,9 @@ export default function Welcome({ navigation }) {
           <Title>Welcome to Geogessr</Title>
           <View style={styles.container}>
             <Text style={styles.text}>
-              This is a location guessing game where you read each question and tap the spot on the map where you think that place is located. {'\n\n'}
-              Your score depends on how close your guess is to the actual location - the more accurate your guess, the more points you earn. {'\n\n'}
-              Once you've answered all the questions, you'll see your total score and find out how well you did.
+            This is a location guessing game where you tap the map to guess each place's location. {'\n'}
+            Your score is based on how close your guess is to the actual spot—the closer your score is to 0, the better.{'\n'}
+            At the end, you'll see your total score and how well you did.
             </Text>
           </View>
           <View>
@@ -34,7 +34,7 @@ const styles = StyleSheet.create({
     fontSize: 14,         // Increase font size for readability
     color: '#B0A854',     // A bright, warm color for the text
     lineHeight: 26,       // Increase line height for better readability
-    marginHorizontal: 20,    // Space after text for better separation
+    marginHorizontal: 30,    // Space after text for better separation
     paddingTop: 40,
     paddingBottom: 40,
   },

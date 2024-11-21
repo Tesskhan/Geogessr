@@ -23,10 +23,16 @@ export default function Map({ navigation }) {
     const [showStreetView, setShowStreetView] = useState(false);
     const [streetViewUrl, setStreetViewUrl] = useState('');
     const [referenceLocation, setReferenceLocation] = useState(null);
-    const [question, setQuestion] = useState(''); // Store the question
+    const [question, setQuestion] = useState('');
     const [guessMade, setGuessMade] = useState(false);
+    const [totalScore, setTotalScore] = useState(0); // Cumulative score
+    const [currentGuessScore, setCurrentGuessScore] = useState(0); // Current guess score
+    const [questionsData, setQuestionsData] = useState([]);
 
-    // Fetch the GeoPoint and question from Firestore
+    // For animated score display
+    const [displayScore, setDisplayScore] = useState(0);
+    const [displayTotalScore, setDisplayTotalScore] = useState(0);
+
     const fetchReferenceLocation = async () => {
         if (currentQuestionIndex >= questions.length) {
             Alert.alert("No more questions", "You've completed all questions.", [{ text: "OK" }]);
@@ -44,14 +50,13 @@ export default function Map({ navigation }) {
                 longitude: geoPoint.longitude,
             });
 
-            const fetchedQuestion = docSnap.data().question; // Fetch question
-            setQuestion(fetchedQuestion); // Set the question
+            const fetchedQuestion = docSnap.data().question;
+            setQuestion(fetchedQuestion);
         } else {
             console.error("No such document!");
         }
     };
 
-    // Fetch the reference location and question on mount and when the question changes
     useEffect(() => {
         fetchReferenceLocation();
     }, [currentQuestionIndex]);
@@ -59,7 +64,7 @@ export default function Map({ navigation }) {
     const calculateDistance = (lat1, lon1, lat2, lon2) => {
         const toRad = (value) => (value * Math.PI) / 180;
 
-        const R = 6371; // Radius of the Earth in kilometers
+        const R = 6371000; // Radius of the Earth in meters
         const dLat = toRad(lat2 - lat1);
         const dLon = toRad(lon2 - lon1);
 
@@ -69,11 +74,11 @@ export default function Map({ navigation }) {
             Math.sin(dLon / 2) * Math.sin(dLon / 2);
 
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c; // Distance in kilometers
+        return R * c; // Distance in meters
     };
 
     const handleMapPress = (event) => {
-        if (guessMade) return; // Prevent multiple taps
+        if (guessMade) return; // Prevent multiple taps after the guess is made
 
         const newCoordinate = event.nativeEvent.coordinate;
 
@@ -91,21 +96,16 @@ export default function Map({ navigation }) {
             key: "userGuess",
         };
 
-        const distance = calculateDistance(
+        // Calculate the distance for the current guess
+        const dist = calculateDistance(
             referenceLocation.latitude,
             referenceLocation.longitude,
             newCoordinate.latitude,
             newCoordinate.longitude
         );
 
-        Alert.alert(
-            'Distance',
-            `Your guess is ${distance.toFixed(2)} km away from the reference location.`,
-            [{ text: 'OK' }]
-        );
-
         setMarkers([newMarker]); // Add user's guess marker
-        setGuessMade(true); // Disable further taps
+        setCurrentGuessScore(dist); // Store the score for the current guess
     };
 
     const handleMarkerPress = (coordinate) => {
@@ -114,23 +114,75 @@ export default function Map({ navigation }) {
         setShowStreetView(true);
     };
 
+    const handleCheck = () => {
+        if (!markers.length) return;
+
+        setGuessMade(true); // Disable further repositioning
+
+        // Add the current guess score to the total score
+        const updatedTotalScore = totalScore + currentGuessScore;
+        setTotalScore(updatedTotalScore); // Accumulate the total score
+
+        // Store the question data
+        const updatedQuestionsData = [
+            ...questionsData,
+            {
+                question: question, // The current question
+                score: currentGuessScore, // The score for this guess (distance)
+            }
+        ];
+        setQuestionsData(updatedQuestionsData); // Update the data
+
+        // Animate the score display
+        animateScore(currentGuessScore, setDisplayScore);
+        animateScore(updatedTotalScore, setDisplayTotalScore);
+    };
+
+    const animateScore = (targetValue, setter) => {
+        let startValue = 0;
+        const duration = 1000; // Animation duration in milliseconds
+        const increment = Math.ceil(targetValue / (duration / 50)); // Increment per frame
+
+        const interval = setInterval(() => {
+            startValue += increment;
+            if (startValue >= targetValue) {
+                clearInterval(interval);
+                setter(targetValue); // Ensure the final value is set accurately
+            } else {
+                setter(startValue);
+            }
+        }, 50);
+    };
+
     const handleContinue = () => {
         if (currentQuestionIndex < questions.length - 1) {
-            setCurrentQuestionIndex((prevIndex) => prevIndex + 1); // Advance to the next question
-            setMarkers([]);
-            setGuessMade(false);
-            setShowStreetView(false);
+            setCurrentQuestionIndex((prevIndex) => prevIndex + 1);
+            setMarkers([]);  // Reset markers
+            setGuessMade(false);  // Reset guess flag
+            setCurrentGuessScore(0); // Reset current guess score
+            setDisplayScore(0); // Reset animated current score
+            setShowStreetView(false);  // Hide street view
         } else {
-            Alert.alert("Game Over", "You've completed all questions.", [{ text: "OK" }]);
+            // Once all questions are completed, navigate to the ResultScreen
+            navigation.navigate('ResultScreen', {
+                score: totalScore,  // Passing the total score
+                questionsData: questionsData,  // Passing all question data
+            });
         }
     };
 
     return (
         <Container>
             <Title>Guessing</Title>
+
+            <View style={styles.questionNumberContainer}>
+                <Text style={styles.questionNumberText}>
+                    Question: {currentQuestionIndex + 1}/{questions.length}
+                </Text>
+            </View>
+
             <Line />
 
-            {/* Display the question as white text over the map */}
             <View style={styles.questionContainer}>
                 <Text style={styles.questionText}>{question}</Text>
             </View>
@@ -155,7 +207,6 @@ export default function Map({ navigation }) {
                         mapType="satellite"
                         onPress={handleMapPress}
                     >
-                        {/* User Guess Marker */}
                         {markers.map((marker) => (
                             <Marker
                                 key={marker.key}
@@ -166,8 +217,7 @@ export default function Map({ navigation }) {
                             />
                         ))}
 
-                        {/* Reference Location Marker */}
-                        {referenceLocation && guessMade && (
+                        {referenceLocation && markers.length > 0 && guessMade && (
                             <Marker
                                 coordinate={referenceLocation}
                                 pinColor="blue"
@@ -175,13 +225,9 @@ export default function Map({ navigation }) {
                             />
                         )}
 
-                        {/* Line between User Guess and Reference */}
-                        {referenceLocation && markers.length > 0 && (
+                        {referenceLocation && markers.length > 0 && guessMade && (
                             <Polyline
-                                coordinates={[
-                                    referenceLocation,
-                                    markers[0].coordinate,
-                                ]}
+                                coordinates={[referenceLocation, markers[0].coordinate]}
                                 strokeColor="purple"
                                 strokeWidth={3}
                             />
@@ -190,11 +236,28 @@ export default function Map({ navigation }) {
                 </View>
             )}
 
+            <View style={styles.infoContainer}>
+                {/* Show the current score (current guess distance) after the Check button is pressed */}
+                {guessMade && markers.length > 0 && (
+                    <Text style={styles.infoText}>
+                        Score: {displayScore.toFixed(0)} meters
+                    </Text>
+                )}
+
+                {/* Show the total accumulated score */}
+                {guessMade && (
+                    <Text style={styles.infoText}>
+                        Total Score: {displayTotalScore.toFixed(0)} meters
+                    </Text>
+                )}
+            </View>
+
             <View style={styles.buttonContainer}>
                 <Button
-                    label="Continue"
+                    label={guessMade ? "Continue" : "Check"}
                     theme="primary"
-                    onPress={handleContinue}
+                    onPress={guessMade ? handleContinue : handleCheck}
+                    disabled={!markers.length}
                 />
             </View>
         </Container>
@@ -227,7 +290,25 @@ const styles = StyleSheet.create({
     questionText: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: 'white', // White text for visibility over the map
+        color: 'white',
         textAlign: 'center',
+    },
+    questionNumberContainer: {
+        marginVertical: 10,
+        alignItems: 'center',
+    },
+    questionNumberText: {
+        fontSize: 16,
+        color: 'white',
+        fontWeight: 'bold',
+    },
+    infoContainer: {
+        marginTop: 10,
+        alignItems: 'center',
+    },
+    infoText: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: 'white',
     },
 });
